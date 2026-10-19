@@ -1,0 +1,23 @@
+{
+	"pages": [
+		{
+			"path": "pages/index/index",
+			"style": {
+				"navigationBarTitleText": "停车管理系统",
+				"enablePullDownRefresh": true
+			}
+		},
+		{ "path": "pages/entry/entry", "style": { "navigationBarTitleText": "车辆入场登记" } },
+		{ "path": "pages/exit/exit", "style": { "navigationBarTitleText": "出场自动计费" } },
+		{ "path": "pages/seat/seat", "style": { "navigationBarTitleText": "车位统计" } },
+		{ "path": "pages/record/record", "style": { "navigationBarTitleText": "记录查询" } },
+		{ "path": "pages/vehicle/vehicle", "style": { "navigationBarTitleText": "车辆管理" } },
+		{ "path": "pages/rule/rule", "style": { "navigationBarTitleText": "计费规则配置" } }
+	],
+	"globalStyle": {
+		"navigationBarTextStyle": "white",
+		"navigationBarTitleText": "停车管理系统",
+		"navigationBarBackgroundColor": "#2b6cff",
+		"backgroundColor": "#f5f6fa"
+	}
+}
