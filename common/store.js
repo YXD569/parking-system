@@ -81,7 +81,38 @@ function defaultDB() {
 			isPay: 1, bstate: 1, carType: 1
 		}
 	]
-
+    	// 生成过去7天的随机历史数据 (用于数据看板展示)
+    	const mockPlates = ['陕A11111', '陕B22222', '陕C33333', '粤B88888', '京A66666']
+    	let recordIdCounter = 100
+    	for (let i = 1; i <= 7; i++) {
+    		const dayTime = now - i * 86400000
+    		// 每天随机生成 5-15 条流水
+    		const count = Math.floor(Math.random() * 10) + 5
+    		for (let j = 0; j < count; j++) {
+    			const enterTs = dayTime - Math.floor(Math.random() * 10 * 3600000) // 当天入场
+    			const minutes = Math.floor(Math.random() * 180) + 15 // 停 15-195 分钟
+    			const exitTs = enterTs + minutes * 60000
+    			const isMonthCard = Math.random() > 0.8 // 20%是月租车
+    			const fee = isMonthCard ? 0 : Math.floor(minutes / 60) * 5 + 5
+    			
+    			records.push({
+    				id: recordIdCounter++,
+    				plateNumber: mockPlates[Math.floor(Math.random() * mockPlates.length)],
+    				seatNo: 'A' + pad(Math.floor(Math.random() * 60) + 1, 3),
+    				enterTime: formatTime(enterTs),
+    				exitTime: formatTime(exitTs),
+    				minutes: minutes,
+    				price: fee,
+    				payMoney: fee,
+    				orderNo: 'P' + exitTs,
+    				isPay: 1,
+    				bstate: 1,
+    				carType: isMonthCard ? 2 : 1
+    			})
+    		}
+    	}
+    	// 更新序号，防止新增冲突
+    	db.seq.record = recordIdCounter
 	return {
 		vehicles,
 		records,
@@ -427,4 +458,182 @@ export function getTodayStats() {
 		.filter(r => r.isPay === 1 && r.exitTime && r.exitTime.slice(0, 10) === today)
 		.reduce((s, r) => s + (r.payMoney || 0), 0)
 	return { count: todayRecords.length, income: Number(income.toFixed(2)) }
+}
+/* ---------------- 数据看板 (BI分析) ---------------- */
+export function getDashboardData() {
+	const db = getDB()
+	const records = db.records
+	const seats = db.seats
+	const todayStr = formatTime(Date.now()).slice(0, 10)
+
+	// 1. 24小时车流分布（今天）
+	const hourFlow = new Array(24).fill(0)
+	records.filter(r => r.enterTime.startsWith(todayStr)).forEach(r => {
+		const hour = parseInt(r.enterTime.slice(11, 13))
+		hourFlow[hour]++
+	})
+
+	// 2. 近7天营收趋势
+	const last7Days = []
+	const revenue = []
+	for (let i = 6; i >= 0; i--) {
+		const d = new Date(Date.now() - i * 86400000)
+		const dStr = formatTime(d.getTime()).slice(0, 10)
+		last7Days.push(dStr.slice(5)) // 取 MM-DD
+		const dayIncome = records
+			.filter(r => r.isPay === 1 && r.exitTime.startsWith(dStr))
+			.reduce((sum, r) => sum + r.payMoney, 0)
+		revenue.push(dayIncome)
+	}
+
+	// 3. 核心业务指标计算
+	// 周转率 = 今日总入场车次 / 总车位
+	const todayRecords = records.filter(r => r.enterTime.startsWith(todayStr))
+	const turnoverRate = seats.length ? (todayRecords.length / seats.length).toFixed(2) : 0
+	
+	// ARPU (平均客单价) = 总营收 / 已支付车次
+	const exitedRecords = records.filter(r => r.isPay === 1)
+	const totalIncome = exitedRecords.reduce((sum, r) => sum + r.payMoney, 0)
+	const arpu = exitedRecords.length ? (totalIncome / exitedRecords.length).toFixed(2) : 0
+	
+	// ATL (平均停车时长) = 已出场总时长 / 已出场车次
+	const totalMin = exitedRecords.reduce((sum, r) => sum + r.minutes, 0)
+	const atl = exitedRecords.length ? Math.round(totalMin / exitedRecords.length) : 0
+
+	return { hourFlow, last7Days, revenue, turnoverRate, arpu, atl }
+}
+/* ---------------- 进阶 BI 数据看板 ---------------- */
+export function getAdvancedDashboardData() {
+	const db = getDB()
+	const records = db.records.filter(r => r.isPay === 1) // 只分析已支付的流水
+	const seats = db.seats
+	const todayStr = formatTime(Date.now()).slice(0, 10)
+	const yesterdayStr = formatTime(Date.now() - 86400000).slice(0, 10)
+
+	// 1. 趋势图数据 (最近7天营收 & 停车频次)
+	const trendDays = []
+	const trendRevenue = []
+	for (let i = 6; i >= 0; i--) {
+		const dStr = formatTime(Date.now() - i * 86400000).slice(0, 10)
+		trendDays.push(dStr.slice(5)) // MM-DD
+		const dayIncome = records.filter(r => r.exitTime.startsWith(dStr)).reduce((s, r) => s + r.payMoney, 0)
+		trendRevenue.push(dayIncome)
+	}
+
+	// 2. 核心指标与环比 (B进阶)
+	const todayIncome = records.filter(r => r.exitTime.startsWith(todayStr)).reduce((s, r) => s + r.payMoney, 0)
+	const yesterdayIncome = records.filter(r => r.exitTime.startsWith(yesterdayStr)).reduce((s, r) => s + r.payMoney, 0)
+	let yoyRate = 0
+	if (yesterdayIncome > 0) yoyRate = ((todayIncome - yesterdayIncome) / yesterdayIncome * 100).toFixed(1)
+
+	// 3. RFM 用户分层模型 (B进阶)
+	// 按车牌聚合
+	const userMap = {}
+	records.forEach(r => {
+		if (!userMap[r.plateNumber]) {
+			userMap[r.plateNumber] = { plate: r.plateNumber, recency: r.exitTime, frequency: 0, monetary: 0 }
+		}
+		userMap[r.plateNumber].frequency++
+		userMap[r.plateNumber].monetary += r.payMoney
+		// 更新最近一次消费时间
+		if (r.exitTime > userMap[r.plateNumber].recency) userMap[r.plateNumber].recency = r.exitTime
+	})
+	
+	const users = Object.values(userMap)
+	// 简单分层逻辑：
+	// 重要价值客户：消费金额 > 30 且 频次 >= 2
+	// 高频低价值：频次 >= 3 且 金额 <= 30
+	const vipUsers = users.filter(u => u.monetary >= 30 && u.frequency >= 2).length
+	const highFreqUsers = users.filter(u => u.frequency >= 3 && u.monetary < 30).length
+	
+	// 4. 智能预警 (D进阶)
+	const warnings = []
+	const usedSeats = seats.filter(s => s.status === 1).length
+	const usageRate = (usedSeats / seats.length) * 100
+	
+	if (usageRate > 85) warnings.push({ type: 'danger', text: `【拥堵预警】当前车位使用率已达 ${usageRate.toFixed(0)}%，请引导车辆前往备用区。` })
+	if (yoyRate < 0) warnings.push({ type: 'warning', text: `【营收预警】今日营收环比下降 ${Math.abs(yoyRate)}%，建议排查是否因计费规则或车流异常导致。` })
+	
+	// 检查僵尸车 (在车超过48小时)
+	const inParkRecords = db.records.filter(r => r.bstate === 0)
+	inParkRecords.forEach(r => {
+		const enterTs = parseTime(r.enterTime)
+		if (Date.now() - enterTs > 48 * 3600000) {
+			warnings.push({ type: 'danger', text: `【异常检测】发现疑似僵尸车 [${r.plateNumber}]，已停放超过 48 小时，建议人工介入。` })
+		}
+	})
+	if (warnings.length === 0) warnings.push({ type: 'success', text: '【系统通知】今日各项运营指标平稳，无异常事件。' })
+
+	return {
+		trendDays,
+		trendRevenue,
+		todayIncome,
+		yoyRate,
+		vipUsers,
+		highFreqUsers,
+		warnings,
+		usageRate: usageRate.toFixed(1)
+	}
+}
+/* ---------------- 进阶数据查询与清洗 ---------------- */
+// 多维复合查询
+export function advancedQueryRecords(params) {
+	const db = getDB()
+	const { keyword = '', status = 'all', startDate = '', endDate = '', page = 1, pageSize = 10 } = params
+	const kw = String(keyword || '').trim().toUpperCase()
+
+	let filtered = db.records.filter(r => {
+		// 1. 车牌模糊匹配
+		if (kw && r.plateNumber.indexOf(kw) === -1) return false
+		// 2. 支付状态/在场状态
+		if (status === 'paid' && r.isPay !== 1) return false
+		if (status === 'unpaid' && r.isPay !== 0) return false
+		if (status === 'in_park' && r.bstate !== 0) return false
+		
+		// 3. 时间范围过滤 (按入场时间)
+		const dateStr = r.enterTime.slice(0, 10)
+		if (startDate && dateStr < startDate) return false
+		if (endDate && dateStr > endDate) return false
+		
+		return true
+	})
+
+	// 按入场时间倒序
+	filtered.sort((a, b) => new Date(b.enterTime.replace(/-/g, '/')) - new Date(a.enterTime.replace(/-/g, '/')))
+
+	// 统计汇总指标
+	const totalCount = filtered.length
+	const totalAmount = filtered.reduce((sum, r) => sum + (r.payMoney || 0), 0)
+
+	// 分页处理
+	const startIndex = (page - 1) * pageSize
+	const paginatedData = filtered.slice(startIndex, startIndex + pageSize)
+
+	return {
+		list: paginatedData,
+		totalCount,
+		totalAmount: Number(totalAmount.toFixed(2)),
+		totalPages: Math.ceil(totalCount / pageSize)
+	}
+}
+
+// 数据清洗：一键作废/清理异常停留数据 (模拟清洗逻辑)
+export function cleanAnomalyData() {
+	const db = getDB()
+	let cleanedCount = 0
+	// 规则：把入场超过 7 天且未出场的“僵尸车”记录作废
+	const now = Date.now()
+	db.records.forEach(r => {
+		if (r.bstate === 0) {
+			const enterTs = parseTime(r.enterTime)
+			if (now - enterTs > 7 * 86400000) {
+				r.bstate = 1 // 强制出场
+				r.exitTime = formatTime(now)
+				r.price = 999 // 标记异常高额罚款
+				cleanedCount++
+			}
+		}
+	})
+	saveDB()
+	return cleanedCount
 }

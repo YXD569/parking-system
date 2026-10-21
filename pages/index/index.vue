@@ -100,7 +100,8 @@
 					{ name: '车位统计', icon: '🅿️', color: '#ff9900', path: '/pages/seat/seat' },
 					{ name: '记录查询', icon: '📋', color: '#8a5cff', path: '/pages/record/record' },
 					{ name: '车辆管理', icon: '🚙', color: '#00c1d4', path: '/pages/vehicle/vehicle' },
-					{ name: '计费规则', icon: '⚙️', color: '#fa3534', path: '/pages/rule/rule' }
+					{ name: '计费规则', icon: '⚙️', color: '#fa3534', path: '/pages/rule/rule' },
+					{ name: '数据看板', icon: '📊', color: '#8a5cff', path: '/pages/dashboard/dashboard' } 
 				]
 			}
 		},

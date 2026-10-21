@@ -12,7 +12,18 @@
 		{ "path": "pages/seat/seat", "style": { "navigationBarTitleText": "车位统计" } },
 		{ "path": "pages/record/record", "style": { "navigationBarTitleText": "记录查询" } },
 		{ "path": "pages/vehicle/vehicle", "style": { "navigationBarTitleText": "车辆管理" } },
-		{ "path": "pages/rule/rule", "style": { "navigationBarTitleText": "计费规则配置" } }
+		{
+			"path": "pages/rule/rule",
+			"style": {
+				"navigationBarTitleText": "计费规则配置"
+			}
+		},
+		{
+			"path": "pages/dashboard/dashboard",
+			"style": {
+				"navigationBarTitleText": "运营数据看板"
+			}
+		}
 	],
 	"globalStyle": {
 		"navigationBarTextStyle": "white",
